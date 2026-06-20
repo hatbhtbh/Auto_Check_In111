@@ -1,5 +1,5 @@
 """
-cron "39 12 * * *" script-path=xxx.py,tag=匹配cron用
+cron "5 8 * * *" script-path=xxx.py,tag=匹配cron用
 new Env('恩山论坛签到')
 """
 
