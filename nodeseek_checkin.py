@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-cron "1 8 * * *" script-path=xxx.py,tag=匹配cron用
+cron "0 8 * * *" script-path=xxx.py,tag=匹配cron用
 new Env('nodeseek签到')
 """
 import os
