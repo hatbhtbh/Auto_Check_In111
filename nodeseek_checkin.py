@@ -205,7 +205,7 @@ if __name__ == "__main__":
     ns_random = os.getenv("NS_RANDOM", "true")
     
     # 随机签到时间窗口配置（秒）
-    max_random_delay = int(os.getenv("MAX_RANDOM_DELAY", "600"))  # 默认1小时=3600秒
+    max_random_delay = int(os.getenv("MAX_RANDOM_DELAY", "900"))  # 默认1小时=3600秒
     random_signin = os.getenv("RANDOM_SIGNIN", "true").lower() == "true"
     
     # 读取Cookie（使用换行符分割，支持Cookie中包含&符号）
