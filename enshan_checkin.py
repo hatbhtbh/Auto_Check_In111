@@ -8,7 +8,7 @@ import re
 import requests
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timedelta  # ✅ 已修复：添加了 timedelta 导入
 
 # ---------------- 统一通知模块加载 ----------------
 hadsend = False
@@ -21,7 +21,7 @@ except ImportError:
     print("⚠️  未加载通知模块，跳过通知功能")
 
 # 配置项
-enshan_cookie = os.environ.get('enshan_cookie', '')
+ENSHAN_COOKIE = os.environ.get('ENSHAN_COOKIE', '')
 max_random_delay = int(os.getenv("MAX_RANDOM_DELAY", "3600"))
 random_signin = os.getenv("RANDOM_SIGNIN", "true").lower() == "true"
 privacy_mode = os.getenv("PRIVACY_MODE", "true").lower() == "true"
@@ -79,14 +79,21 @@ def format_time_remaining(seconds):
         return f"{secs}秒"
 
 def wait_with_countdown(delay_seconds, task_name):
-    """带倒计时的随机延迟等待"""
+    """带倒计时的随机延迟等待，并显示预计签到时间点"""
     if delay_seconds <= 0:
         return
+    
+    # 计算预计签到具体时间点
+    eta_time = datetime.now() + timedelta(seconds=delay_seconds)
+    eta_str = eta_time.strftime('%Y-%m-%d %H:%M:%S')
+    
+    print(f"⏰ {task_name} 预计签到时间点: {eta_str}")
     print(f"{task_name} 需要等待 {format_time_remaining(delay_seconds)}")
+    
     remaining = delay_seconds
     while remaining > 0:
         if remaining <= 10 or remaining % 10 == 0:
-            print(f"{task_name} 倒计时: {format_time_remaining(remaining)}")
+            print(f"{task_name} 倒计时: {format_time_remaining(remaining)} (预计时间: {eta_str})")
         sleep_time = 1 if remaining <= 10 else min(10, remaining)
         time.sleep(sleep_time)
         remaining -= sleep_time
@@ -107,7 +114,6 @@ def parse_cookies(cookie_str):
     if not cookie_str:
         return []
 
-    # 先按换行符分割
     lines = cookie_str.strip().split('\n')
     cookies = []
 
@@ -116,14 +122,12 @@ def parse_cookies(cookie_str):
         if not line:
             continue
 
-        # 再按&&分割
         parts = line.split('&&')
         for part in parts:
             part = part.strip()
             if part:
                 cookies.append(part)
 
-    # 去重并过滤空值
     unique_cookies = []
     for cookie in cookies:
         if cookie and cookie not in unique_cookies:
@@ -136,7 +140,6 @@ def extract_number(text):
     if not text:
         return 0
     try:
-        # 移除所有非数字字符，只保留数字
         number_str = re.sub(r'[^\d]', '', str(text))
         return int(number_str) if number_str else 0
     except (ValueError, TypeError):
@@ -508,10 +511,8 @@ class EnShanSigner:
         try:
             print(f"👤 正在获取{'签到后' if is_after else '签到前'}用户信息...")
 
-            # 添加随机延迟
             time.sleep(random.uniform(2, 5))
 
-            # 部分情况下积分页会返回 521（源站/WAF/路径大小写导致），这里做重试并尝试多个候选URL
             response = None
             last_status = None
             for url in CREDIT_URLS:
@@ -526,12 +527,10 @@ class EnShanSigner:
                         response = resp
                         break
 
-                    # 521/5xx/429 等临时性错误：短暂退避后重试
                     if resp.status_code in (429, 521) or 500 <= resp.status_code < 600:
                         time.sleep(1.5 * attempt + random.uniform(0, 0.8))
                         continue
 
-                    # 其他状态码通常不是临时问题，换下一个URL
                     break
                 if response is not None:
                     break
@@ -545,8 +544,6 @@ class EnShanSigner:
             print(f"🔍 用户信息响应状态码: {response.status_code}")
 
             if response.status_code == 200:
-                # 提取积分信息
-                # 页面结构可能随主题变化，使用多套模式兜底
                 coin = extract_first(
                     response.text,
                     patterns=[
@@ -577,7 +574,6 @@ class EnShanSigner:
                     self.point_before = point
                     print(f"💰 签到前 - 恩山币: {coin}, 积分: {point}")
 
-                # 只在第一次获取用户名等信息
                 if not is_after:
                     self.user_name = extract_first(
                         response.text,
@@ -636,7 +632,6 @@ class EnShanSigner:
                 if not login_ok:
                     return False, f"请先执行登录获取formhash: {login_msg}"
 
-            # 签到前再刷新一次，降低WAF过期导致的失败
             self._refresh_clearance_cookie()
 
             headers = {
@@ -695,7 +690,7 @@ class EnShanSigner:
 ❌ 错误原因: Cookie为空
 
 🔧 解决方法:
-1. 在青龙面板中添加环境变量enshan_cookie
+1. 在青龙面板中添加环境变量 ENSHAN_COOKIE
 2. 多账号用换行分隔或&&分隔
 3. Cookie需要包含完整的登录信息
 
@@ -703,7 +698,6 @@ class EnShanSigner:
             print(f"❌ {error_msg}")
             return error_msg, False
 
-        # 1. 获取签到前用户信息
         login_success, login_msg = self.daily_login()
         if not login_success:
             return f"登录失败: {login_msg}", False
@@ -711,21 +705,16 @@ class EnShanSigner:
         if not user_success:
             print(f"⚠️ 获取用户信息失败: {user_msg}")
 
-        # 2. 随机等待
         time.sleep(random.uniform(2, 5))
 
-        # 3. 执行签到
         signin_success, signin_msg = self.perform_checkin()
 
-        # 4. 获取签到后用户信息
         time.sleep(random.uniform(2, 4))
         after_success, after_msg = self.get_user_info(is_after=True)
 
-        # 5. 通过积分变化判断签到是否真的成功
         gain_info = ""
         if after_success and self.coin_before and self.coin_after:
             try:
-                # 修复：清理数据，移除"币"等文字，只保留数字
                 coin_before = extract_number(self.coin_before)
                 coin_after = extract_number(self.coin_after)
                 point_before = extract_number(self.point_before)
@@ -742,7 +731,6 @@ class EnShanSigner:
                     gain_info = f"\n🎁 本次收益: +{coin_gain} 恩山币, +{point_gain} 积分"
                     print(f"✅ 通过积分变化确认签到成功: +{coin_gain} 恩山币, +{point_gain} 积分")
                 elif coin_gain == 0 and point_gain == 0:
-                    # 积分没变化，可能已经签到过了
                     signin_success = True
                     signin_msg = "今日已签到（积分无变化）"
                     print("📅 积分无变化，今日已签到")
@@ -752,10 +740,8 @@ class EnShanSigner:
 
             except Exception as e:
                 print(f"⚠️ 积分变化计算异常: {e}")
-                # 如果积分计算失败，使用原始签到结果
                 print("🔄 使用原始签到结果")
 
-        # 6. 组合结果消息
         final_msg = f"""🌟 恩山论坛签到结果
 
     👤 用户: {mask_username(self.user_name) or '未知用户'}
@@ -773,29 +759,25 @@ class EnShanSigner:
 def main():
     """主程序入口"""
     print(f"==== 恩山论坛签到开始 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ====")
-
-    # 显示配置状态
     print(f"🔒 隐私保护模式: {'已启用' if privacy_mode else '已禁用'}")
 
-    # 随机延迟（整体延迟）
     if random_signin:
         delay_seconds = random.randint(0, max_random_delay)
         if delay_seconds > 0:
             print(f"🎲 随机延迟: {format_time_remaining(delay_seconds)}")
             wait_with_countdown(delay_seconds, "恩山论坛签到")
 
-    # 获取Cookie配置
-    if not enshan_cookie:
-        error_msg = """❌ 未找到enshan_cookie环境变量
+    if not ENSHAN_COOKIE:
+        error_msg = """❌ 未找到 ENSHAN_COOKIE 环境变量
 
 🔧 配置方法:
-1. enshan_cookie: 恩山论坛Cookie
+1. ENSHAN_COOKIE: 恩山论坛Cookie
 2. 多账号用换行分隔或&&分隔
 3. Cookie需要包含完整的登录信息
 
 示例:
-单账号: enshan_cookie=完整的Cookie字符串
-多账号: enshan_cookie=cookie1&&cookie2 或换行分隔
+单账号: ENSHAN_COOKIE=完整的Cookie字符串
+多账号: ENSHAN_COOKIE=cookie1&&cookie2 或换行分隔
 
 💡 提示: 登录恩山论坛后，F12复制完整Cookie"""
 
@@ -803,8 +785,7 @@ def main():
         notify_user("恩山论坛签到失败", error_msg)
         return
 
-    # 使用Cookie解析函数
-    cookies = parse_cookies(enshan_cookie)
+    cookies = parse_cookies(ENSHAN_COOKIE)
 
     if not cookies:
         error_msg = """❌ Cookie解析失败
@@ -814,7 +795,7 @@ def main():
 2. Cookie为空或只包含空白字符
 3. 分隔符使用错误
 
-💡 请检查enshan_cookie环境变量的值"""
+💡 请检查 ENSHAN_COOKIE 环境变量的值"""
 
         print(error_msg)
         notify_user("恩山论坛签到失败", error_msg)
@@ -828,13 +809,11 @@ def main():
 
     for index, cookie in enumerate(cookies):
         try:
-            # 账号间随机等待
             if index > 0:
                 delay = random.uniform(10, 20)
                 print(f"⏱️  随机等待 {delay:.1f} 秒后处理下一个账号...")
                 time.sleep(delay)
 
-            # 执行签到
             signer = EnShanSigner(cookie, index + 1)
             result_msg, is_success = signer.main()
 
@@ -848,7 +827,6 @@ def main():
                 'username': mask_username(signer.user_name) if signer.user_name else f"账号{index + 1}"
             })
 
-            # 发送单个账号通知
             status = "成功" if is_success else "失败"
             title = f"恩山论坛账号{index + 1}签到{status}"
             notify_user(title, result_msg)
@@ -858,7 +836,6 @@ def main():
             print(f"❌ {error_msg}")
             notify_user(f"恩山论坛账号{index + 1}签到失败", error_msg)
 
-    # 发送汇总通知
     if total_count > 1:
         summary_msg = f"""📊 恩山论坛签到汇总
 
@@ -868,7 +845,6 @@ def main():
 📊 成功率: {success_count/total_count*100:.1f}%
 ⏰ 完成时间: {datetime.now().strftime('%m-%d %H:%M')}"""
 
-        # 添加详细结果（最多显示5个账号的详情）
         if len(results) <= 5:
             summary_msg += "\n\n📋 详细结果:"
             for result in results:
